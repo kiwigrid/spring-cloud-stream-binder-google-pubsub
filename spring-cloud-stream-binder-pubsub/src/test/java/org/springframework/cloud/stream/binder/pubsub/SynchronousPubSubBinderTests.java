@@ -18,11 +18,12 @@
 package org.springframework.cloud.stream.binder.pubsub;
 
 import org.junit.Rule;
-
 import org.springframework.cloud.stream.binder.ExtendedConsumerProperties;
 import org.springframework.cloud.stream.binder.ExtendedProducerProperties;
 import org.springframework.cloud.stream.binder.PartitionCapableBinderTests;
 import org.springframework.cloud.stream.binder.Spy;
+import org.springframework.cloud.stream.binder.pubsub.config.PubSubConsumerProperties;
+import org.springframework.cloud.stream.binder.pubsub.config.PubSubProducerProperties;
 import org.springframework.cloud.stream.binder.test.junit.pubsub.PubSubTestSupport;
 
 /**

@@ -18,12 +18,11 @@
 package org.springframework.cloud.stream.binder.pubsub;
 
 import com.google.cloud.pubsub.PubSub;
-import org.junit.Rule;
-
 import org.springframework.cloud.stream.binder.AbstractTestBinder;
 import org.springframework.cloud.stream.binder.ExtendedConsumerProperties;
 import org.springframework.cloud.stream.binder.ExtendedProducerProperties;
-import org.springframework.cloud.stream.binder.test.junit.pubsub.PubSubTestSupport;
+import org.springframework.cloud.stream.binder.pubsub.config.PubSubConsumerProperties;
+import org.springframework.cloud.stream.binder.pubsub.config.PubSubProducerProperties;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.integration.codec.kryo.PojoCodec;
 import org.springframework.integration.context.IntegrationContextUtils;
@@ -32,14 +31,17 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 /**
  * @author Vinicius Carvalho
  */
-public class PubSubTestBinder extends AbstractTestBinder<PubSubMessageChannelBinder, ExtendedConsumerProperties<PubSubConsumerProperties>, ExtendedProducerProperties<PubSubProducerProperties>> {
-
+public class PubSubTestBinder extends
+		AbstractTestBinder<PubSubMessageChannelBinder, ExtendedConsumerProperties<PubSubConsumerProperties>, ExtendedProducerProperties<PubSubProducerProperties>> {
 
 	private PubSub pubSub;
 
-	public PubSubTestBinder(PubSub pubSub){
+	public PubSubTestBinder(PubSub pubSub) {
 		this.pubSub = pubSub;
-		PubSubMessageChannelBinder binder = new PubSubMessageChannelBinder(new PubSubResourceManager(pubSub));
+		PubSubMessageChannelBinder binder = new PubSubMessageChannelBinder(
+				new PubSubResourceManager(pubSub),
+				new PubSubProvisioningProvider()
+		);
 		GenericApplicationContext context = new GenericApplicationContext();
 		ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
 		scheduler.setPoolSize(1);
@@ -54,12 +56,12 @@ public class PubSubTestBinder extends AbstractTestBinder<PubSubMessageChannelBin
 
 	@Override
 	public void cleanup() {
-		pubSub.listSubscriptions().values().forEach(subscription -> {
-			System.out.println("Deleting subscription: " + subscription.name());
+		pubSub.listSubscriptions().getValues().forEach(subscription -> {
+			System.out.println("Deleting subscription: " + subscription.getName());
 			subscription.delete();
 		});
-		pubSub.listTopics().values().forEach(topic -> {
-			System.out.println("Deleting topic: " + topic.name());
+		pubSub.listTopics().getValues().forEach(topic -> {
+			System.out.println("Deleting topic: " + topic.getName());
 			topic.delete();
 		});
 	}

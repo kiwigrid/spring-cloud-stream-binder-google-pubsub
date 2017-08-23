@@ -20,24 +20,17 @@ package org.springframework.cloud.stream.binder.pubsub;
 import java.util.List;
 import java.util.UUID;
 
+import com.google.cloud.pubsub.*;
+import org.slf4j.Logger;
 import org.springframework.cloud.stream.binder.ExtendedProducerProperties;
+import org.springframework.cloud.stream.binder.pubsub.config.PubSubProducerProperties;
 import org.springframework.cloud.stream.binder.pubsub.support.GroupedMessage;
 import org.springframework.cloud.stream.binder.pubsub.support.PubSubBinder;
 import org.springframework.cloud.stream.binder.pubsub.support.PubSubMessage;
+import org.springframework.cloud.stream.provisioning.ProducerDestination;
 import org.springframework.util.StringUtils;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.cloud.pubsub.Message;
-import com.google.cloud.pubsub.PubSub;
-import com.google.cloud.pubsub.PubSubException;
-import com.google.cloud.pubsub.Subscription;
-import com.google.cloud.pubsub.SubscriptionInfo;
-import com.google.cloud.pubsub.Topic;
-import com.google.cloud.pubsub.TopicInfo;
-import com.google.common.util.concurrent.JdkFutureAdapters;
-import com.google.common.util.concurrent.ListenableFuture;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static org.slf4j.LoggerFactory.getLogger;
 
 /**
  * @author Vinicius Carvalho
@@ -50,49 +43,51 @@ import org.slf4j.LoggerFactory;
  */
 public class PubSubResourceManager {
 
+	private static final Logger LOGGER = getLogger(PubSubResourceManager.class);
+
 	private PubSub client;
-	private ObjectMapper mapper;
-	private Logger logger = LoggerFactory.getLogger(PubSubResourceManager.class);
 
 	public PubSubResourceManager(PubSub client) {
 		this.client = client;
-		this.mapper = new ObjectMapper();
 	}
 
 	public static String applyPrefix(String prefix, String name) {
-		if (StringUtils.isEmpty(prefix))
+		if (StringUtils.isEmpty(prefix)) {
 			return name;
+		}
 		return prefix + PubSubBinder.GROUP_INDEX_DELIMITER + name;
 	}
 
-	public void createRequiredMessageGroups(List<TopicInfo> destinations,
-			ExtendedProducerProperties<PubSubProducerProperties> producerProperties) {
-
+	public void createRequiredMessageGroups(ProducerDestination destination,
+			ExtendedProducerProperties<PubSubProducerProperties> producerProperties)
+	{
 		for (String requiredGroupName : producerProperties.getRequiredGroups()) {
-			for (int i = 0; i < producerProperties.getPartitionCount(); i++) {
-				String name = destinations.get(i).name();
-				declareSubscription(destinations.get(i).name(), name, requiredGroupName);
+			if (producerProperties.isPartitioned()) {
+				for (int i = 0; i < producerProperties.getPartitionCount(); i++) {
+					declareSubscription(destination.getNameForPartition(i), destination.getName(), requiredGroupName);
+				}
+			} else {
+				declareSubscription(destination.getName(), destination.getName(), requiredGroupName);
 			}
 		}
 	}
 
 	/**
 	 * Declares a subscription and returns its SubscriptionInfo
-	 * @param topic
-	 * @param name
-	 * @return
+	 *
+	 * @param topic the name of the topic
+	 * @param name the name of the subscription
+	 * @return the subscription info
 	 */
 	public SubscriptionInfo declareSubscription(String topic, String name, String group) {
 		SubscriptionInfo subscription = null;
 		String subscriptionName = createSubscriptionName(name, group);
 		try {
-			logger.debug("Creating subscription: {} binding to topic : {}",subscriptionName,topic);
-			subscription = client.create(
-					SubscriptionInfo.of(topic, subscriptionName));
-		}
-		catch (PubSubException e) {
-			if (e.reason().equals(PubSubBinder.ALREADY_EXISTS)) {
-				logger.warn("Subscription: {} already exists, reusing definition from remote server",subscriptionName);
+			LOGGER.debug("Creating subscription: {} binding to topic : {}", subscriptionName, topic);
+			subscription = client.create(SubscriptionInfo.of(topic, subscriptionName));
+		} catch (PubSubException e) {
+			if (e.getReason().equals(PubSubBinder.ALREADY_EXISTS)) {
+				LOGGER.info("Subscription: {} already exists, reusing definition from remote server", subscriptionName);
 				subscription = Subscription.of(topic, subscriptionName);
 			}
 		}
@@ -100,15 +95,13 @@ public class PubSubResourceManager {
 	}
 
 	public Subscription createSubscription(SubscriptionInfo subscriptionInfo) {
-		Subscription subscription = null;
+		Subscription subscription;
 		try {
 			subscription = client.create(subscriptionInfo);
-		}
-		catch (PubSubException e) {
-			if (e.reason().equals(PubSubBinder.ALREADY_EXISTS)) {
-				subscription = client.getSubscription(subscriptionInfo.name());
-			}
-			else {
+		} catch (PubSubException e) {
+			if (e.getReason().equals(PubSubBinder.ALREADY_EXISTS)) {
+				subscription = client.getSubscription(subscriptionInfo.getName());
+			} else {
 				throw e;
 			}
 		}
@@ -116,8 +109,9 @@ public class PubSubResourceManager {
 	}
 
 	public PubSub.MessageConsumer createConsumer(SubscriptionInfo subscriptionInfo,
-			PubSub.MessageProcessor processor) {
-		return client.getSubscription(subscriptionInfo.name()).pullAsync(processor);
+			PubSub.MessageProcessor processor)
+	{
+		return client.getSubscription(subscriptionInfo.getName()).pullAsync(processor);
 	}
 
 	public TopicInfo declareTopic(String name, String prefix, Integer partitionIndex) {
@@ -125,12 +119,11 @@ public class PubSubResourceManager {
 
 		String topicName = createTopicName(name, prefix, partitionIndex);
 		try {
-			logger.debug("Creating topic: {} ",topic);
+			LOGGER.debug("Creating topic: {} ", topicName);
 			topic = client.create(TopicInfo.of(topicName));
-		}
-		catch (PubSubException e) {
-			if (e.reason().equals(PubSubBinder.ALREADY_EXISTS)) {
-				logger.warn("Topic: {} already exists, reusing definition from remote server",topicName);
+		} catch (PubSubException e) {
+			if (e.getReason().equals(PubSubBinder.ALREADY_EXISTS)) {
+				LOGGER.info("Topic: {} already exists, reusing definition from remote server", topicName);
 				topic = Topic.of(topicName);
 			}
 		}
@@ -138,52 +131,46 @@ public class PubSubResourceManager {
 		return topic;
 	}
 
-	public String publishMessage(PubSubMessage pubSubMessage){
+	public String publishMessage(PubSubMessage pubSubMessage) {
 		return client.publish(pubSubMessage.getTopic(), pubSubMessage.getMessage());
 	}
 
 	public List<String> publishMessages(GroupedMessage groupedMessage) {
-		logger.debug("Publishing {} messages to topic: {}",groupedMessage.getMessages().size(),groupedMessage.getTopic());
+		LOGGER.debug("Publishing {} messages to topic: {}",
+				groupedMessage.getMessages().size(),
+				groupedMessage.getTopic());
 		return client.publish(groupedMessage.getTopic(), groupedMessage.getMessages());
-	}
-
-	public ListenableFuture<List<String>> publishMessagesAsync(
-			GroupedMessage groupedMessage) {
-		return JdkFutureAdapters.listenInPoolThread(client
-				.publishAsync(groupedMessage.getTopic(), groupedMessage.getMessages()));
 	}
 
 	public void deleteTopics(List<TopicInfo> topics) {
 		for (TopicInfo t : topics) {
-			client.deleteTopic(t.name());
+			client.deleteTopic(t.getName());
 		}
 	}
 
 	public String createTopicName(String name, String prefix, Integer partitionIndex) {
-		StringBuffer buffer = new StringBuffer();
+		StringBuilder buffer = new StringBuilder();
 		buffer.append(applyPrefix(prefix, name));
 
 		if (partitionIndex != null) {
-			buffer.append("-" + partitionIndex);
+			buffer.append("-").append(partitionIndex);
 		}
 		return buffer.toString();
 	}
 
 	private String createSubscriptionName(String name, String group) {
 		boolean anonymousConsumer = !StringUtils.hasText(group);
-		StringBuffer buffer = new StringBuffer();
+		StringBuilder buffer = new StringBuilder();
 		if (anonymousConsumer) {
 			buffer.append(groupedName(name, UUID.randomUUID().toString()));
-		}
-		else {
+		} else {
 			buffer.append(groupedName(name, group));
 		}
 		return buffer.toString();
 	}
 
 	public final String groupedName(String name, String group) {
-		return name + PubSubBinder.GROUP_INDEX_DELIMITER
-				+ (StringUtils.hasText(group) ? group : "default");
+		return name + PubSubBinder.GROUP_INDEX_DELIMITER + (StringUtils.hasText(group) ? group : "default");
 	}
 
 }

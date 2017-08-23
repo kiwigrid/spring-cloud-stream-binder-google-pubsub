@@ -17,31 +17,23 @@
 
 package org.springframework.cloud.stream.binder.pubsub;
 
-import java.time.Duration;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.cloud.ByteArray;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import org.springframework.cloud.stream.binder.BinderHeaders;
 import org.springframework.cloud.stream.binder.ExtendedProducerProperties;
-import org.springframework.cloud.stream.binder.pubsub.support.GroupedMessage;
+import org.springframework.cloud.stream.binder.pubsub.config.PubSubProducerProperties;
 import org.springframework.cloud.stream.binder.pubsub.support.PubSubBinder;
 import org.springframework.cloud.stream.binder.pubsub.support.PubSubMessage;
+import org.springframework.cloud.stream.provisioning.ProducerDestination;
 import org.springframework.context.Lifecycle;
 import org.springframework.integration.handler.AbstractMessageHandler;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageHeaders;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.cloud.ByteArray;
-import com.google.cloud.pubsub.TopicInfo;
-
-import reactor.core.Cancellation;
-import reactor.core.publisher.WorkQueueProcessor;
-import reactor.core.scheduler.Schedulers;
 
 /**
  * @author Vinicius Carvalho
@@ -53,7 +45,7 @@ public abstract class PubSubMessageHandler extends AbstractMessageHandler implem
 
 	protected ObjectMapper mapper;
 
-	protected List<TopicInfo> topics;
+	protected ProducerDestination producerDestination;
 
 	protected Logger logger = LoggerFactory.getLogger(this.getClass().getName());
 
@@ -61,25 +53,28 @@ public abstract class PubSubMessageHandler extends AbstractMessageHandler implem
 
 	public PubSubMessageHandler(PubSubResourceManager resourceManager,
 			ExtendedProducerProperties<PubSubProducerProperties> producerProperties,
-			List<TopicInfo> topics) {
+			ProducerDestination producerDestination)
+	{
 		this.resourceManager = resourceManager;
 		this.producerProperties = producerProperties;
 		this.mapper = new ObjectMapper();
-		this.topics = topics;
+		this.producerDestination = producerDestination;
 	}
-
 
 	protected PubSubMessage convert(Message<?> message) throws Exception {
 		String encodedHeaders = encodeHeaders(message.getHeaders());
-		String topic = producerProperties.isPartitioned() ? topics
-				.get((Integer) message.getHeaders().get(BinderHeaders.PARTITION_HEADER))
-				.name() : topics.get(0).name();
-		PubSubMessage pubSubMessage = new PubSubMessage(
+		String topic;
+		if (producerProperties.isPartitioned()) {
+			Integer partition = (Integer) message.getHeaders().get(BinderHeaders.PARTITION_HEADER);
+			topic = producerDestination.getNameForPartition(partition);
+		} else {
+			topic = producerDestination.getName();
+		}
+		return new PubSubMessage(
 				com.google.cloud.pubsub.Message
-						.builder(ByteArray.copyFrom((byte[]) message.getPayload()))
+						.newBuilder(ByteArray.copyFrom((byte[]) message.getPayload()))
 						.addAttribute(PubSubBinder.SCST_HEADERS, encodedHeaders).build(),
 				topic);
-		return pubSubMessage;
 	}
 
 	protected String encodeHeaders(MessageHeaders headers) throws Exception {

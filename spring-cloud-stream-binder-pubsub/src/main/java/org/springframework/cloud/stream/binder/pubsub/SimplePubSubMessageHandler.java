@@ -17,20 +17,23 @@
 
 package org.springframework.cloud.stream.binder.pubsub;
 
-import java.util.List;
-
-import com.google.cloud.pubsub.TopicInfo;
-
 import org.springframework.cloud.stream.binder.ExtendedProducerProperties;
+import org.springframework.cloud.stream.binder.pubsub.config.PubSubProducerProperties;
 import org.springframework.cloud.stream.binder.pubsub.support.PubSubMessage;
+import org.springframework.cloud.stream.provisioning.ProducerDestination;
 import org.springframework.messaging.Message;
 
 /**
  * @author Vinicius Carvalho
  */
 public class SimplePubSubMessageHandler extends PubSubMessageHandler {
-	public SimplePubSubMessageHandler(PubSubResourceManager resourceManager, ExtendedProducerProperties<PubSubProducerProperties> producerProperties, List<TopicInfo> topics) {
-		super(resourceManager, producerProperties, topics);
+
+	public SimplePubSubMessageHandler(
+			PubSubResourceManager resourceManager,
+			ExtendedProducerProperties<PubSubProducerProperties> producerProperties,
+			ProducerDestination producerDestination)
+	{
+		super(resourceManager, producerProperties, producerDestination);
 	}
 
 	@Override

@@ -21,12 +21,11 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.springframework.cloud.stream.binder.pubsub.support.PubSubBinder;
-import org.springframework.integration.endpoint.MessageProducerSupport;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.cloud.pubsub.PubSub;
 import com.google.cloud.pubsub.Subscription;
+import org.springframework.cloud.stream.binder.pubsub.support.PubSubBinder;
+import org.springframework.integration.endpoint.MessageProducerSupport;
 
 /**
  * @author Vinicius Carvalho
@@ -34,34 +33,30 @@ import com.google.cloud.pubsub.Subscription;
 public class PubSubMessageListener extends MessageProducerSupport {
 
 	private ObjectMapper mapper;
-	private PubSubResourceManager resourceManager;
 	private Subscription subscription;
 	private PubSub.MessageConsumer messageConsumer;
 
-	public PubSubMessageListener(PubSubResourceManager resourceManager,
-			Subscription subscription) {
-		this.resourceManager = resourceManager;
+	public PubSubMessageListener(Subscription subscription) {
 		this.mapper = new ObjectMapper();
 		this.subscription = subscription;
 	}
 
 	@Override
 	protected void doStart() {
-		messageConsumer = subscription.pullAsync(message -> {
-			sendMessage(getMessageBuilderFactory()
-					.withPayload(message.payload().toByteArray())
-					.copyHeaders(decodeAttributes(message.attributes())).build());
-		});
+		messageConsumer = subscription.pullAsync(message ->
+				sendMessage(getMessageBuilderFactory()
+						.withPayload(message.getPayload().toByteArray())
+						.copyHeaders(decodeAttributes(message.getAttributes())).build())
+		);
 	}
 
 	private Map<String, Object> decodeAttributes(Map<String, String> attributes) {
 		Map<String, Object> headers = new HashMap<>();
 		if (attributes.get(PubSubBinder.SCST_HEADERS) != null) {
 			try {
-				headers.putAll(mapper.readValue(attributes.get(PubSubBinder.SCST_HEADERS),
-						Map.class));
-			}
-			catch (IOException e) {
+				//noinspection unchecked
+				headers.putAll(mapper.readValue(attributes.get(PubSubBinder.SCST_HEADERS), Map.class));
+			} catch (IOException e) {
 				logger.error("Could not deserialize SCST_HEADERS");
 			}
 
@@ -73,8 +68,7 @@ public class PubSubMessageListener extends MessageProducerSupport {
 	protected void doStop() {
 		try {
 			messageConsumer.close();
-		}
-		catch (Exception e) {
+		} catch (Exception e) {
 			logger.error("Could not close pubsub message consumer");
 		}
 	}

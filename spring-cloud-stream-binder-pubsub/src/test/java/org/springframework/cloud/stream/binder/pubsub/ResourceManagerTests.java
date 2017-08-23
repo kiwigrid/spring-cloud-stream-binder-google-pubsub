@@ -17,39 +17,24 @@
 
 package org.springframework.cloud.stream.binder.pubsub;
 
-import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.google.cloud.AuthCredentials;
 import com.google.cloud.pubsub.PubSub;
-import com.google.cloud.pubsub.PubSubOptions;
-import com.google.cloud.pubsub.Subscription;
 import com.google.cloud.pubsub.Topic;
 import com.google.cloud.pubsub.TopicInfo;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.cloud.stream.binder.ExtendedProducerProperties;
-import org.springframework.cloud.stream.binder.pubsub.config.PubSubBinderConfigurationProperties;
+import org.springframework.cloud.stream.binder.pubsub.config.PubSubProducerProperties;
 import org.springframework.cloud.stream.binder.test.junit.pubsub.PubSubTestSupport;
-import org.springframework.context.annotation.Bean;
-import org.springframework.test.context.ContextConfiguration;
-import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
 
 /**
  * @author Vinicius Carvalho
  */
 public class ResourceManagerTests {
-
 
 	private PubSubResourceManager resourceManager;
 
@@ -59,11 +44,11 @@ public class ResourceManagerTests {
 	public PubSubTestSupport rule = new PubSubTestSupport();
 
 	@Before
-	public void setup(){
-		if(resourceManager == null){
+	public void setup() {
+		if (resourceManager == null) {
 			resourceManager = new PubSubResourceManager(rule.getResource());
 		}
-		if(pubSub == null){
+		if (pubSub == null) {
 			pubSub = rule.getResource();
 		}
 	}
@@ -72,53 +57,53 @@ public class ResourceManagerTests {
 	public void createNonPartitionedSubscription() throws Exception {
 		PubSubProducerProperties properties = new PubSubProducerProperties();
 
-		ExtendedProducerProperties<PubSubProducerProperties> producerProperties = new ExtendedProducerProperties<>(properties);
+		ExtendedProducerProperties<PubSubProducerProperties> producerProperties = new ExtendedProducerProperties<>(
+				properties);
 		producerProperties.setRequiredGroups("hdfs", "average");
 		producerProperties.getExtension().setPrefix("createNonPartitionedSubscription");
 		List<TopicInfo> topics = new ArrayList<>();
-		topics.add(resourceManager.declareTopic("test",properties.getPrefix(),null));
-		resourceManager.createRequiredMessageGroups(topics,producerProperties);
+		topics.add(resourceManager.declareTopic("test", properties.getPrefix(), null));
+		resourceManager.createRequiredMessageGroups(new PubSubProvisioningProvider.PubSubProducerDestination(properties.getPrefix(),
+				"test"), producerProperties);
 
-		Topic topic = pubSub.getTopic(topics.get(0).name());
+		Topic topic = pubSub.getTopic(topics.get(0).getName());
 		Assert.assertNotNull(topic);
-		topic.listSubscriptions().iterateAll().forEachRemaining(subscriptionId -> {
-			Assert.assertTrue(subscriptionId.subscription().startsWith("createNonPartitionedSubscription.test."));
-		});
+		topic.listSubscriptions()
+				.iterateAll()
+				.forEachRemaining(subscriptionId -> Assert.assertTrue(subscriptionId.getSubscription()
+						.startsWith("createNonPartitionedSubscription.test.")));
 		resourceManager.deleteTopics(topics);
 
-
 	}
-
-
 
 	@Test
 	public void createPartitionedSubscription() throws Exception {
 		PubSubProducerProperties properties = new PubSubProducerProperties();
 
-		ExtendedProducerProperties<PubSubProducerProperties> producerProperties = new ExtendedProducerProperties<>(properties);
+		ExtendedProducerProperties<PubSubProducerProperties> producerProperties = new ExtendedProducerProperties<>(
+				properties);
 		producerProperties.setRequiredGroups("hdfs", "average");
 		producerProperties.getExtension().setPrefix("createPartitionedSubscription");
 		List<TopicInfo> topics = new ArrayList<>();
-		for(int i=0;i<2;i++){
-			topics.add(resourceManager.declareTopic("test",properties.getPrefix(),i));
+		for (int i = 0; i < 2; i++) {
+			topics.add(resourceManager.declareTopic("test", null, i));
 		}
-		resourceManager.createRequiredMessageGroups(topics,producerProperties);
+		resourceManager.createRequiredMessageGroups(
+				new PubSubProvisioningProvider.PubSubProducerDestination(properties.getPrefix(), "test"),
+				producerProperties
+		);
 
-		for(int i=0;i<2;i++){
-			Topic topic = pubSub.getTopic(topics.get(i).name());
+		for (int i = 0; i < 2; i++) {
+			Topic topic = pubSub.getTopic(topics.get(i).getName());
 			Assert.assertNotNull(topic);
-			topic.listSubscriptions().values().forEach(subscriptionId -> {
-				Assert.assertTrue(subscriptionId.subscription().startsWith("createPartitionedSubscription.test-"));
-			});
+			topic.listSubscriptions()
+					.getValues()
+					.forEach(subscriptionId -> Assert.assertTrue(subscriptionId.getSubscription()
+							.startsWith("createPartitionedSubscription.test-")));
 		}
 
 		resourceManager.deleteTopics(topics);
 
-
 	}
-
-
-
-
 
 }

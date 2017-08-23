@@ -15,7 +15,7 @@
  *
  */
 
-package org.springframework.cloud.stream.binder.pubsub;
+package org.springframework.cloud.stream.binder.pubsub.config;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -41,22 +41,20 @@ public class PubSubExtendedBindingProperties implements
 
 	@Override
 	public PubSubConsumerProperties getExtendedConsumerProperties(String channelName) {
-		if (bindings.containsKey(channelName)
-				&& bindings.get(channelName).getConsumer() != null) {
-			return bindings.get(channelName).getConsumer();
-		}
-		else {
+		PubSubBindingProperties bindingProperties = bindings.get(channelName);
+		if (bindingProperties != null && bindingProperties.getConsumer() != null) {
+			return bindingProperties.getConsumer();
+		} else {
 			return new PubSubConsumerProperties();
 		}
 	}
 
 	@Override
 	public PubSubProducerProperties getExtendedProducerProperties(String channelName) {
-		if (bindings.containsKey(channelName)
-				&& bindings.get(channelName).getProducer() != null) {
-			return bindings.get(channelName).getProducer();
-		}
-		else {
+		PubSubBindingProperties bindingProperties = bindings.get(channelName);
+		if (bindingProperties != null && bindingProperties.getProducer() != null) {
+			return bindingProperties.getProducer();
+		} else {
 			return new PubSubProducerProperties();
 		}
 	}

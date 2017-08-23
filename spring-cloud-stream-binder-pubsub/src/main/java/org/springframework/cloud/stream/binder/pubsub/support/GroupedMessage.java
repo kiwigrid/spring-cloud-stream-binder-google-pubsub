@@ -43,10 +43,6 @@ public class GroupedMessage {
 
 	@Override
 	public String toString() {
-		final StringBuffer sb = new StringBuffer("GroupedMessage{");
-		sb.append("topic='").append(topic).append('\'');
-		sb.append(", messages=").append(messages.size());
-		sb.append('}');
-		return sb.toString();
+		return "GroupedMessage{topic='" + topic + '\'' + ", messages=" + messages.size() + '}';
 	}
 }

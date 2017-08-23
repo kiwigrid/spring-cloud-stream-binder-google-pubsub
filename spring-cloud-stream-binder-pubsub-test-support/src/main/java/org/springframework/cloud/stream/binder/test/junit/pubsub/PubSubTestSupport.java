@@ -17,15 +17,11 @@
 
 package org.springframework.cloud.stream.binder.test.junit.pubsub;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 
-import com.google.cloud.AuthCredentials;
-import com.google.cloud.RetryParams;
 import com.google.cloud.pubsub.PubSub;
 import com.google.cloud.pubsub.PubSubOptions;
 import com.google.cloud.pubsub.testing.LocalPubsubHelper;
-
 import org.springframework.cloud.stream.test.junit.AbstractExternalResourceTestSupport;
 import org.springframework.util.StringUtils;
 
@@ -33,8 +29,6 @@ import org.springframework.util.StringUtils;
  * @author Vinicius Carvalho
  */
 public class PubSubTestSupport extends AbstractExternalResourceTestSupport<PubSub> {
-
-	private LocalPubsubHelper helper;
 
 	public PubSubTestSupport() {
 		super("PUBSUB");
@@ -49,9 +43,9 @@ public class PubSubTestSupport extends AbstractExternalResourceTestSupport<PubSu
 	protected void obtainResource() throws Exception {
 		if(StringUtils.hasText(System.getenv("GOOGLE_CLOUD_JSON_CRED"))){
 			resource = PubSubOptions
-					.builder()
+					.newBuilder()
 					.build()
-					.service();
+					.getService();
 		}else{
 			resource = LocalPubSubHelperHolder.getInstance().getResource();
 		}
@@ -66,11 +60,7 @@ public class PubSubTestSupport extends AbstractExternalResourceTestSupport<PubSu
 			this.helper = LocalPubsubHelper.create();
 			try {
 				helper.start();
-			}
-			catch (IOException e) {
-				e.printStackTrace();
-			}
-			catch (InterruptedException e) {
+			} catch (IOException | InterruptedException e) {
 				e.printStackTrace();
 			}
 		}
@@ -88,7 +78,7 @@ public class PubSubTestSupport extends AbstractExternalResourceTestSupport<PubSu
 
 
 		public PubSub getResource(){
-			return helper.options().service();
+			return helper.getOptions().getService();
 		}
 	}
 }

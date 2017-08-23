@@ -16,26 +16,27 @@
  */
 package org.springframework.cloud.stream.binder.pubsub;
 
-import java.util.LinkedList;
-import java.util.List;
-
+import com.google.cloud.pubsub.Subscription;
+import com.google.cloud.pubsub.SubscriptionInfo;
+import com.google.cloud.pubsub.TopicInfo;
 import org.springframework.cloud.stream.binder.AbstractMessageChannelBinder;
 import org.springframework.cloud.stream.binder.ExtendedConsumerProperties;
 import org.springframework.cloud.stream.binder.ExtendedProducerProperties;
 import org.springframework.cloud.stream.binder.ExtendedPropertiesBinder;
+import org.springframework.cloud.stream.binder.pubsub.config.PubSubConsumerProperties;
+import org.springframework.cloud.stream.binder.pubsub.config.PubSubExtendedBindingProperties;
+import org.springframework.cloud.stream.binder.pubsub.config.PubSubProducerProperties;
+import org.springframework.cloud.stream.provisioning.ConsumerDestination;
+import org.springframework.cloud.stream.provisioning.ProducerDestination;
 import org.springframework.integration.core.MessageProducer;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessageHandler;
-
-import com.google.cloud.pubsub.Subscription;
-import com.google.cloud.pubsub.SubscriptionInfo;
-import com.google.cloud.pubsub.TopicInfo;
 
 /**
  * @author Vinicius Carvalho
  */
 public class PubSubMessageChannelBinder extends
-		AbstractMessageChannelBinder<ExtendedConsumerProperties<PubSubConsumerProperties>, ExtendedProducerProperties<PubSubProducerProperties>, Subscription, List<TopicInfo>>
+		AbstractMessageChannelBinder<ExtendedConsumerProperties<PubSubConsumerProperties>, ExtendedProducerProperties<PubSubProducerProperties>, PubSubProvisioningProvider>
 		implements
 		ExtendedPropertiesBinder<MessageChannel, PubSubConsumerProperties, PubSubProducerProperties> {
 
@@ -43,59 +44,47 @@ public class PubSubMessageChannelBinder extends
 
 	private PubSubResourceManager resourceManager;
 
-	public PubSubMessageChannelBinder(PubSubResourceManager resourceManager) {
-		super(true, new String[0]);
+	public PubSubMessageChannelBinder(PubSubResourceManager resourceManager, PubSubProvisioningProvider provisioningProvider) {
+		super(true, new String[0], provisioningProvider);
 		this.resourceManager = resourceManager;
 	}
 
-	@Override
-	protected List<TopicInfo> createProducerDestinationIfNecessary(String name,
-			ExtendedProducerProperties<PubSubProducerProperties> properties) {
-		Integer partitionIndex = null;
-		List<TopicInfo> topics = new LinkedList<>();
-
+	protected void createProducerDestinationIfNecessary(ProducerDestination destination,
+			ExtendedProducerProperties<PubSubProducerProperties> properties)
+	{
+		String prefix = properties.getExtension().getPrefix();
 		if (properties.isPartitioned()) {
-			for (int i = 0; i < properties.getPartitionCount(); i++) {
-				if (properties.isPartitioned())
-					partitionIndex = i;
-				TopicInfo topic = resourceManager.declareTopic(name,
-						properties.getExtension().getPrefix(), partitionIndex);
-				topics.add(topic);
+			for (int partitionIndex = 0; partitionIndex < properties.getPartitionCount(); partitionIndex++) {
+				resourceManager.declareTopic(destination.getNameForPartition(partitionIndex), prefix, null);
 			}
-		}
-		else {
-			topics.add(resourceManager.declareTopic(name,
-					properties.getExtension().getPrefix(), null));
+		} else {
+			resourceManager.declareTopic(destination.getName(), prefix, null);
 		}
 
-		return topics;
 	}
 
 	@Override
-	protected MessageHandler createProducerMessageHandler(List<TopicInfo> destinations,
+	protected MessageHandler createProducerMessageHandler(ProducerDestination destination,
 			ExtendedProducerProperties<PubSubProducerProperties> producerProperties)
-			throws Exception {
-
-		PubSubMessageHandler handler = null;
+			throws Exception
+	{
+		createProducerDestinationIfNecessary(destination, producerProperties);
+		PubSubMessageHandler handler;
 		if (producerProperties.getExtension().isBatchEnabled()) {
-			handler = new BatchingPubSubMessageHandler(resourceManager,
-					producerProperties, destinations);
-			((BatchingPubSubMessageHandler) handler)
-					.setConcurrency(producerProperties.getExtension().getConcurrency());
-		}
-		else {
-			handler = new SimplePubSubMessageHandler(resourceManager, producerProperties,
-					destinations);
+			handler = new BatchingPubSubMessageHandler(resourceManager, producerProperties, destination);
+			((BatchingPubSubMessageHandler) handler).setConcurrency(producerProperties.getExtension().getConcurrency());
+		} else {
+			handler = new SimplePubSubMessageHandler(resourceManager, producerProperties, destination);
 		}
 
-		resourceManager.createRequiredMessageGroups(destinations, producerProperties);
+		resourceManager.createRequiredMessageGroups(destination, producerProperties);
 
 		return handler;
 	}
 
-	@Override
 	protected Subscription createConsumerDestinationIfNecessary(String name, String group,
-			ExtendedConsumerProperties<PubSubConsumerProperties> properties) {
+			ExtendedConsumerProperties<PubSubConsumerProperties> properties)
+	{
 		boolean partitioned = properties.isPartitioned();
 		Integer partitionIndex = null;
 		if (partitioned) {
@@ -104,22 +93,19 @@ public class PubSubMessageChannelBinder extends
 		TopicInfo topicInfo = resourceManager.declareTopic(name,
 				properties.getExtension().getPrefix(), partitionIndex);
 		SubscriptionInfo subscription = resourceManager
-				.declareSubscription(topicInfo.name(), topicInfo.name(), group);
+				.declareSubscription(topicInfo.getName(), topicInfo.getName(), group);
 		return resourceManager.createSubscription(subscription);
 	}
 
 	@Override
-	protected MessageProducer createConsumerEndpoint(String name, String group,
-			Subscription destination,
-			ExtendedConsumerProperties<PubSubConsumerProperties> properties) {
-
-		return new PubSubMessageListener(resourceManager, destination);
-
-	}
-
-	@Override
-	protected void afterUnbindConsumer(String destination, String group,
-			ExtendedConsumerProperties<PubSubConsumerProperties> consumerProperties) {
+	protected MessageProducer createConsumerEndpoint(
+			ConsumerDestination destination,
+			String group,
+			ExtendedConsumerProperties<PubSubConsumerProperties> properties
+	) throws Exception
+	{
+		Subscription subscription = createConsumerDestinationIfNecessary(destination.getName(), group, properties);
+		return new PubSubMessageListener(subscription);
 	}
 
 	@Override

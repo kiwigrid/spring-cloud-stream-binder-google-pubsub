@@ -15,7 +15,7 @@
  *
  */
 
-package org.springframework.cloud.stream.binder.pubsub;
+package org.springframework.cloud.stream.binder.pubsub.config;
 
 /**
  * @author Vinicius Carvalho

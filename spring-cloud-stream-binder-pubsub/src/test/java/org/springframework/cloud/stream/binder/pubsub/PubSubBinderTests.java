@@ -17,20 +17,14 @@
 
 package org.springframework.cloud.stream.binder.pubsub;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import java.util.UUID;
 
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-
-import org.springframework.cloud.stream.binder.Binding;
-import org.springframework.cloud.stream.binder.ExtendedConsumerProperties;
-import org.springframework.cloud.stream.binder.ExtendedProducerProperties;
-import org.springframework.cloud.stream.binder.PartitionCapableBinderTests;
-import org.springframework.cloud.stream.binder.ProducerProperties;
-import org.springframework.cloud.stream.binder.Spy;
+import org.springframework.cloud.stream.binder.*;
+import org.springframework.cloud.stream.binder.pubsub.config.PubSubConsumerProperties;
+import org.springframework.cloud.stream.binder.pubsub.config.PubSubProducerProperties;
 import org.springframework.cloud.stream.binder.test.junit.pubsub.PubSubTestSupport;
 import org.springframework.cloud.stream.config.BindingProperties;
 import org.springframework.integration.channel.DirectChannel;
@@ -38,6 +32,8 @@ import org.springframework.integration.channel.QueueChannel;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.support.GenericMessage;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * @author Vinicius Carvalho

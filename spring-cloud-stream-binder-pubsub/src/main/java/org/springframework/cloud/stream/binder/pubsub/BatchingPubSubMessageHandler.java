@@ -18,21 +18,16 @@
 package org.springframework.cloud.stream.binder.pubsub;
 
 import java.time.Duration;
-import java.util.List;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.cloud.ByteArray;
-import com.google.cloud.pubsub.TopicInfo;
-import reactor.core.Cancellation;
+import org.springframework.cloud.stream.binder.ExtendedProducerProperties;
+import org.springframework.cloud.stream.binder.pubsub.config.PubSubProducerProperties;
+import org.springframework.cloud.stream.binder.pubsub.support.GroupedMessage;
+import org.springframework.cloud.stream.binder.pubsub.support.PubSubMessage;
+import org.springframework.cloud.stream.provisioning.ProducerDestination;
+import org.springframework.messaging.Message;
+import reactor.core.Disposable;
 import reactor.core.publisher.WorkQueueProcessor;
 import reactor.core.scheduler.Schedulers;
-
-import org.springframework.cloud.stream.binder.BinderHeaders;
-import org.springframework.cloud.stream.binder.ExtendedProducerProperties;
-import org.springframework.cloud.stream.binder.pubsub.support.GroupedMessage;
-import org.springframework.cloud.stream.binder.pubsub.support.PubSubBinder;
-import org.springframework.cloud.stream.binder.pubsub.support.PubSubMessage;
-import org.springframework.messaging.Message;
 
 /**
  * @author Vinicius Carvalho
@@ -41,10 +36,14 @@ public class BatchingPubSubMessageHandler extends PubSubMessageHandler {
 
 	private WorkQueueProcessor<PubSubMessage> processor;
 	private Integer concurrency;
-	private Cancellation processorCancellation;
+	private Disposable processorCancellation;
 
-	public BatchingPubSubMessageHandler(PubSubResourceManager resourceManager, ExtendedProducerProperties<PubSubProducerProperties> producerProperties, List<TopicInfo> topics) {
-		super(resourceManager, producerProperties, topics);
+	public BatchingPubSubMessageHandler(
+			PubSubResourceManager resourceManager,
+			ExtendedProducerProperties<PubSubProducerProperties> producerProperties,
+			ProducerDestination producerDestination)
+	{
+		super(resourceManager, producerProperties, producerDestination);
 		this.processor = WorkQueueProcessor.share(true);
 	}
 
@@ -56,32 +55,36 @@ public class BatchingPubSubMessageHandler extends PubSubMessageHandler {
 
 	@Override
 	public void start() {
-		if(this.concurrency == null){
+		if (this.concurrency == null) {
 			// We are assuming Brian Goetz (http://www.ibm.com/developerworks/java/library/j-jtp0730/index.html) cores * 1 + (1 + wait/service) and that http wait is taking 2x more than service
 			this.concurrency = Runtime.getRuntime().availableProcessors() * 3;
 		}
 		this.processorCancellation = processor.groupBy(PubSubMessage::getTopic)
-				.flatMap(group -> group.map(pubSubMessage -> {
-					return pubSubMessage.getMessage();
-				}).buffer(producerProperties.getExtension().getBatchSize(), Duration.ofMillis(producerProperties.getExtension().getWindowSize())).map(messages -> {
-					return new GroupedMessage(group.key(), messages);
-				})).parallel(concurrency).runOn(Schedulers.elastic()).doOnNext(groupedMessage -> {
+				.flatMap(group -> group
+						.map(PubSubMessage::getMessage)
+						.bufferTimeout(
+								producerProperties.getExtension().getBatchSize(),
+								Duration.ofMillis(producerProperties.getExtension().getWindowSize())
+						)
+						.map(messages -> new GroupedMessage(group.key(), messages)))
+				.parallel(concurrency)
+				.runOn(Schedulers.elastic()).doOnNext(groupedMessage -> {
 					logger.info("Dispatching messages");
 					resourceManager.publishMessages(groupedMessage);
 				}).sequential().publishOn(Schedulers.elastic()).subscribe();
 		running = true;
 	}
 
+	@SuppressWarnings("unused")
 	public Integer getConcurrency() {
 		return concurrency;
 	}
 
 	public void setConcurrency(Integer concurrency) {
-		if(concurrency != null && concurrency > 0){
-			this.concurrency = Math.min(8*Runtime.getRuntime().availableProcessors(),concurrency);
+		if (concurrency != null && concurrency > 0) {
+			this.concurrency = Math.min(8 * Runtime.getRuntime().availableProcessors(), concurrency);
 		}
 	}
-
 
 	@Override
 	public void stop() {
