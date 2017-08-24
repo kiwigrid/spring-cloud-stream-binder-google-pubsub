@@ -22,32 +22,68 @@ import java.util.HashMap;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.cloud.pubsub.PubSub;
-import com.google.cloud.pubsub.Subscription;
+import com.google.api.gax.core.CredentialsProvider;
+import com.google.api.gax.grpc.ChannelProvider;
+import com.google.cloud.pubsub.v1.MessageReceiver;
+import com.google.cloud.pubsub.v1.Subscriber;
+import com.google.common.util.concurrent.MoreExecutors;
+import com.google.pubsub.v1.SubscriptionName;
+import org.slf4j.Logger;
+import org.springframework.cloud.stream.binder.ExtendedConsumerProperties;
+import org.springframework.cloud.stream.binder.pubsub.config.PubSubConsumerProperties;
 import org.springframework.cloud.stream.binder.pubsub.support.PubSubBinder;
 import org.springframework.integration.endpoint.MessageProducerSupport;
+import org.threeten.bp.Duration;
+
+import static org.slf4j.LoggerFactory.getLogger;
 
 /**
  * @author Vinicius Carvalho
  */
 public class PubSubMessageListener extends MessageProducerSupport {
-
+	private static final Logger LOGGER = getLogger(PubSubMessageListener.class);
 	private ObjectMapper mapper;
-	private Subscription subscription;
-	private PubSub.MessageConsumer messageConsumer;
+	private SubscriptionName subscriptionName;
+	private Subscriber subscriber;
+	private CredentialsProvider credentialsProvider;
+	private ChannelProvider channelProvider;
+	private ExtendedConsumerProperties<PubSubConsumerProperties> properties;
 
-	public PubSubMessageListener(Subscription subscription) {
+	public PubSubMessageListener(SubscriptionName subscriptionName, ExtendedConsumerProperties<PubSubConsumerProperties> properties) {
+		this.properties = properties;
 		this.mapper = new ObjectMapper();
-		this.subscription = subscription;
+		this.subscriptionName = subscriptionName;
 	}
 
 	@Override
 	protected void doStart() {
-		messageConsumer = subscription.pullAsync(message ->
-				sendMessage(getMessageBuilderFactory()
-						.withPayload(message.getPayload().toByteArray())
-						.copyHeaders(decodeAttributes(message.getAttributes())).build())
-		);
+		MessageReceiver receiver = (message, consumer) -> {
+			sendMessage(getMessageBuilderFactory()
+					.withPayload(message.getData().toByteArray())
+					.copyHeaders(decodeAttributes(message.getAttributesMap())).build());
+			consumer.ack();
+		};
+
+		Subscriber.Builder builder = Subscriber
+				.defaultBuilder(subscriptionName, receiver)
+				.setMaxAckExtensionPeriod(Duration.ofSeconds(properties.getExtension().getAckDeadlineSeconds()));
+		if (credentialsProvider != null) {
+			builder.setCredentialsProvider(credentialsProvider);
+		}
+		if (channelProvider != null) {
+			builder.setChannelProvider(channelProvider);
+		}
+		subscriber = builder.build();
+		subscriber.addListener(
+				new Subscriber.Listener() {
+					@Override
+					public void failed(Subscriber.State from, Throwable failure) {
+						// Handle failure. This is called when the Subscriber encountered a fatal error and is shutting down.
+						LOGGER.error(from.name() + " failed", failure);
+					}
+				},
+				MoreExecutors.directExecutor());
+		subscriber.startAsync().awaitRunning();
 	}
 
 	private Map<String, Object> decodeAttributes(Map<String, String> attributes) {
@@ -67,9 +103,21 @@ public class PubSubMessageListener extends MessageProducerSupport {
 	@Override
 	protected void doStop() {
 		try {
-			messageConsumer.close();
+			if (subscriber != null) {
+				subscriber.stopAsync().awaitTerminated();
+			}
 		} catch (Exception e) {
 			logger.error("Could not close pubsub message consumer");
 		}
+	}
+
+	public PubSubMessageListener setCredentialsProvider(CredentialsProvider credentialsProvider) {
+		this.credentialsProvider = credentialsProvider;
+		return this;
+	}
+
+	public PubSubMessageListener setChannelProvider(ChannelProvider channelProvider) {
+		this.channelProvider = channelProvider;
+		return this;
 	}
 }

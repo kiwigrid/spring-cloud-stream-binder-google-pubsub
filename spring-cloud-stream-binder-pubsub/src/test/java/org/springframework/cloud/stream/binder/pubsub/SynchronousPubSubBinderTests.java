@@ -29,7 +29,8 @@ import org.springframework.cloud.stream.binder.test.junit.pubsub.PubSubTestSuppo
 /**
  * @author Vinicius Carvalho
  */
-public class SynchronousPubSubBinderTests extends PartitionCapableBinderTests<PubSubTestBinder,ExtendedConsumerProperties<PubSubConsumerProperties>,ExtendedProducerProperties<PubSubProducerProperties>>  {
+public class SynchronousPubSubBinderTests extends
+		PartitionCapableBinderTests<PubSubTestBinder, ExtendedConsumerProperties<PubSubConsumerProperties>, ExtendedProducerProperties<PubSubProducerProperties>> {
 
 	private final String CLASS_UNDER_TEST_NAME = PubSubMessageChannelBinder.class.getSimpleName();
 
@@ -48,8 +49,8 @@ public class SynchronousPubSubBinderTests extends PartitionCapableBinderTests<Pu
 
 	@Override
 	protected PubSubTestBinder getBinder() throws Exception {
-		if(testBinder == null){
-			testBinder = new PubSubTestBinder(rule.getResource());
+		if (testBinder == null) {
+			testBinder = new PubSubTestBinder("test", rule.getResource());
 		}
 		return testBinder;
 	}

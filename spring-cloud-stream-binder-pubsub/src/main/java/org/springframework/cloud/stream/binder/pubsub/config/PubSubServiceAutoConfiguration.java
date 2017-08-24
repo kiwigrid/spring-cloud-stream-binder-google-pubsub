@@ -17,8 +17,10 @@
 
 package org.springframework.cloud.stream.binder.pubsub.config;
 
-import com.google.cloud.pubsub.PubSub;
-import com.google.cloud.pubsub.PubSubOptions;
+import java.io.IOException;
+
+import com.google.cloud.pubsub.v1.SubscriptionAdminClient;
+import com.google.cloud.pubsub.v1.TopicAdminClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -36,7 +38,7 @@ import org.springframework.integration.codec.Codec;
  */
 @Configuration
 @ConditionalOnMissingBean(Binder.class)
-@ConditionalOnClass(PubSub.class)
+@ConditionalOnClass({ TopicAdminClient.class, SubscriptionAdminClient.class })
 @EnableConfigurationProperties({ PubSubBinderConfigurationProperties.class, PubSubExtendedBindingProperties.class })
 public class PubSubServiceAutoConfiguration {
 
@@ -47,9 +49,32 @@ public class PubSubServiceAutoConfiguration {
 	@Autowired
 	private PubSubExtendedBindingProperties pubSubExtendedBindingProperties;
 
+	@SuppressWarnings("SpringJavaAutowiringInspection")
+	@Autowired
+	private PubSubBinderConfigurationProperties pubSubBinderConfigurationProperties;
+
+	@ConditionalOnMissingBean(SubscriptionAdminClient.class)
 	@Bean
-	public PubSubResourceManager pubSubResourceManager(PubSub pubSub) {
-		return new PubSubResourceManager(pubSub);
+	public SubscriptionAdminClient subscriptionAdminClient() throws IOException {
+		return SubscriptionAdminClient.create();
+	}
+
+	@ConditionalOnMissingBean(TopicAdminClient.class)
+	@Bean
+	public TopicAdminClient topicAdminClient() throws IOException {
+		return TopicAdminClient.create();
+	}
+
+	@Bean
+	public PubSubResourceManager pubSubResourceManager(
+			SubscriptionAdminClient subscriptionAdminClient,
+			TopicAdminClient topicAdminClient
+	)
+	{
+		return new PubSubResourceManager(
+				pubSubBinderConfigurationProperties,
+				subscriptionAdminClient,
+				topicAdminClient);
 	}
 
 	@Bean
@@ -61,28 +86,14 @@ public class PubSubServiceAutoConfiguration {
 	public PubSubMessageChannelBinder binder(PubSubResourceManager resourceManager, PubSubProvisioningProvider pubSubProvisioningProvider)
 			throws Exception
 	{
-		PubSubMessageChannelBinder binder = new PubSubMessageChannelBinder(resourceManager, pubSubProvisioningProvider);
+		PubSubMessageChannelBinder binder = new PubSubMessageChannelBinder(
+				pubSubBinderConfigurationProperties,
+				resourceManager,
+				pubSubProvisioningProvider
+		);
 		binder.setExtendedBindingProperties(this.pubSubExtendedBindingProperties);
 		binder.setCodec(codec);
 		return binder;
-	}
-
-	@ConditionalOnMissingBean(PubSub.class)
-	@Configuration
-	public static class PubSubConfiguration {
-
-		@SuppressWarnings("SpringJavaAutowiringInspection")
-		@Autowired
-		private PubSubBinderConfigurationProperties pubSubBinderConfigurationProperties;
-
-		@Bean
-		public PubSub pubSub() throws Exception {
-			return PubSubOptions
-					.newBuilder()
-					.setProjectId(pubSubBinderConfigurationProperties.getProjectName())
-					.build()
-					.getService();
-		}
 	}
 
 }

@@ -17,16 +17,18 @@
 
 package org.springframework.cloud.stream.binder.pubsub;
 
-import java.util.List;
 import java.util.UUID;
 
-import com.google.cloud.pubsub.*;
+import com.google.api.gax.grpc.GrpcApiException;
+import com.google.cloud.pubsub.v1.SubscriptionAdminClient;
+import com.google.cloud.pubsub.v1.TopicAdminClient;
+import com.google.pubsub.v1.*;
+import io.grpc.Status;
 import org.slf4j.Logger;
 import org.springframework.cloud.stream.binder.ExtendedProducerProperties;
+import org.springframework.cloud.stream.binder.pubsub.config.PubSubBinderConfigurationProperties;
 import org.springframework.cloud.stream.binder.pubsub.config.PubSubProducerProperties;
-import org.springframework.cloud.stream.binder.pubsub.support.GroupedMessage;
 import org.springframework.cloud.stream.binder.pubsub.support.PubSubBinder;
-import org.springframework.cloud.stream.binder.pubsub.support.PubSubMessage;
 import org.springframework.cloud.stream.provisioning.ProducerDestination;
 import org.springframework.util.StringUtils;
 
@@ -45,10 +47,21 @@ public class PubSubResourceManager {
 
 	private static final Logger LOGGER = getLogger(PubSubResourceManager.class);
 
-	private PubSub client;
+	private PubSubBinderConfigurationProperties configurationProperties;
 
-	public PubSubResourceManager(PubSub client) {
-		this.client = client;
+	private SubscriptionAdminClient subscriptionAdminClient;
+
+	private TopicAdminClient topicAdminClient;
+
+	public PubSubResourceManager(
+			PubSubBinderConfigurationProperties configurationProperties,
+			SubscriptionAdminClient subscriptionAdminClient,
+			TopicAdminClient topicAdminClient
+	)
+	{
+		this.configurationProperties = configurationProperties;
+		this.subscriptionAdminClient = subscriptionAdminClient;
+		this.topicAdminClient = topicAdminClient;
 	}
 
 	public static String applyPrefix(String prefix, String name) {
@@ -64,7 +77,8 @@ public class PubSubResourceManager {
 		for (String requiredGroupName : producerProperties.getRequiredGroups()) {
 			if (producerProperties.isPartitioned()) {
 				for (int i = 0; i < producerProperties.getPartitionCount(); i++) {
-					declareSubscription(destination.getNameForPartition(i), destination.getName(), requiredGroupName);
+					String name = destination.getNameForPartition(i);
+					declareSubscription(name, name, requiredGroupName);
 				}
 			} else {
 				declareSubscription(destination.getName(), destination.getName(), requiredGroupName);
@@ -72,79 +86,64 @@ public class PubSubResourceManager {
 		}
 	}
 
+	public Subscription declareSubscription(String topicName, String subscriptionName, String group) {
+		return declareSubscription(TopicName.create(configurationProperties.getProjectName(), topicName),
+				subscriptionName,
+				group);
+	}
+
 	/**
 	 * Declares a subscription and returns its SubscriptionInfo
 	 *
-	 * @param topic the name of the topic
-	 * @param name the name of the subscription
+	 * @param topicName the name of the topic
+	 * @param subscriptionName the name of the subscription
 	 * @return the subscription info
 	 */
-	public SubscriptionInfo declareSubscription(String topic, String name, String group) {
-		SubscriptionInfo subscription = null;
-		String subscriptionName = createSubscriptionName(name, group);
+	public Subscription declareSubscription(TopicName topicName, String subscriptionName, String group) {
+		SubscriptionName name = SubscriptionName.create(
+				topicName.getProject(),
+				createSubscriptionName(subscriptionName, group)
+		);
+		return createSubscription(topicName, name);
+	}
+
+	public Subscription createSubscription(TopicName topicName, SubscriptionName subscriptionName) {
 		try {
-			LOGGER.debug("Creating subscription: {} binding to topic : {}", subscriptionName, topic);
-			subscription = client.create(SubscriptionInfo.of(topic, subscriptionName));
-		} catch (PubSubException e) {
-			if (e.getReason().equals(PubSubBinder.ALREADY_EXISTS)) {
-				LOGGER.info("Subscription: {} already exists, reusing definition from remote server", subscriptionName);
-				subscription = Subscription.of(topic, subscriptionName);
+			return subscriptionAdminClient.createSubscription(
+					subscriptionName,
+					topicName,
+					PushConfig.getDefaultInstance(),
+					0);
+		} catch (GrpcApiException e) {
+			if (e.getStatusCode().getCode() == Status.Code.ALREADY_EXISTS) {
+				LOGGER.info("subscription: {} already exists, reusing definition from remote server", subscriptionName);
+				return Subscription
+						.newBuilder()
+						.setNameWithSubscriptionName(subscriptionName)
+						.setTopicWithTopicNameOneof(TopicNameOneof.from(topicName))
+						.build();
 			}
+			throw e;
 		}
-		return subscription;
 	}
 
-	public Subscription createSubscription(SubscriptionInfo subscriptionInfo) {
-		Subscription subscription;
+	public Topic declareTopic(String name, String prefix, Integer partitionIndex) {
+		TopicName topicName = TopicName.create(
+				configurationProperties.getProjectName(),
+				createTopicName(name, prefix, partitionIndex)
+		);
 		try {
-			subscription = client.create(subscriptionInfo);
-		} catch (PubSubException e) {
-			if (e.getReason().equals(PubSubBinder.ALREADY_EXISTS)) {
-				subscription = client.getSubscription(subscriptionInfo.getName());
-			} else {
-				throw e;
+			LOGGER.info("try creating topic: {} ", topicName);
+			return topicAdminClient.createTopic(topicName);
+		} catch (GrpcApiException e) {
+			if (e.getStatusCode().getCode() == Status.Code.ALREADY_EXISTS) {
+				LOGGER.info("topic: {} already exists, reusing definition from remote server", topicName);
+				return Topic
+						.newBuilder()
+						.setNameWithTopicName(topicName)
+						.build();
 			}
-		}
-		return subscription;
-	}
-
-	public PubSub.MessageConsumer createConsumer(SubscriptionInfo subscriptionInfo,
-			PubSub.MessageProcessor processor)
-	{
-		return client.getSubscription(subscriptionInfo.getName()).pullAsync(processor);
-	}
-
-	public TopicInfo declareTopic(String name, String prefix, Integer partitionIndex) {
-		TopicInfo topic = null;
-
-		String topicName = createTopicName(name, prefix, partitionIndex);
-		try {
-			LOGGER.debug("Creating topic: {} ", topicName);
-			topic = client.create(TopicInfo.of(topicName));
-		} catch (PubSubException e) {
-			if (e.getReason().equals(PubSubBinder.ALREADY_EXISTS)) {
-				LOGGER.info("Topic: {} already exists, reusing definition from remote server", topicName);
-				topic = Topic.of(topicName);
-			}
-		}
-
-		return topic;
-	}
-
-	public String publishMessage(PubSubMessage pubSubMessage) {
-		return client.publish(pubSubMessage.getTopic(), pubSubMessage.getMessage());
-	}
-
-	public List<String> publishMessages(GroupedMessage groupedMessage) {
-		LOGGER.debug("Publishing {} messages to topic: {}",
-				groupedMessage.getMessages().size(),
-				groupedMessage.getTopic());
-		return client.publish(groupedMessage.getTopic(), groupedMessage.getMessages());
-	}
-
-	public void deleteTopics(List<TopicInfo> topics) {
-		for (TopicInfo t : topics) {
-			client.deleteTopic(t.getName());
+			throw e;
 		}
 	}
 

@@ -23,5 +23,4 @@ package org.springframework.cloud.stream.binder.pubsub.support;
 public interface PubSubBinder {
 	String SCST_HEADERS = "SCST_HEADERS";
 	String GROUP_INDEX_DELIMITER = ".";
-	String ALREADY_EXISTS = "ALREADY_EXISTS";
 }

@@ -23,9 +23,7 @@ package org.springframework.cloud.stream.binder.pubsub.config;
 public class PubSubConsumerProperties {
 
 	private String prefix = "";
-	private Integer ackDeadlineSeconds = 10;
-
-
+	private int ackDeadlineSeconds = 10;
 
 	public String getPrefix() {
 		return prefix;
@@ -35,12 +33,11 @@ public class PubSubConsumerProperties {
 		this.prefix = prefix;
 	}
 
-
-	public Integer getAckDeadlineSeconds() {
+	public int getAckDeadlineSeconds() {
 		return ackDeadlineSeconds;
 	}
 
-	public void setAckDeadlineSeconds(Integer ackDeadlineSeconds) {
+	public void setAckDeadlineSeconds(int ackDeadlineSeconds) {
 		this.ackDeadlineSeconds = ackDeadlineSeconds;
 	}
 }

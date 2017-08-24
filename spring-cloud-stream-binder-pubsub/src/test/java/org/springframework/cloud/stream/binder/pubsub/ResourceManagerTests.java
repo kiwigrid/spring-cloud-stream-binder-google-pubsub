@@ -19,38 +19,68 @@ package org.springframework.cloud.stream.binder.pubsub;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import com.google.cloud.pubsub.PubSub;
-import com.google.cloud.pubsub.Topic;
-import com.google.cloud.pubsub.TopicInfo;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import com.google.pubsub.v1.ProjectName;
+import com.google.pubsub.v1.Topic;
+import com.google.pubsub.v1.TopicName;
+import org.junit.*;
 import org.springframework.cloud.stream.binder.ExtendedProducerProperties;
+import org.springframework.cloud.stream.binder.PartitionTestSupport;
+import org.springframework.cloud.stream.binder.pubsub.config.PubSubBinderConfigurationProperties;
 import org.springframework.cloud.stream.binder.pubsub.config.PubSubProducerProperties;
+import org.springframework.cloud.stream.binder.test.junit.pubsub.PubSubSupport;
 import org.springframework.cloud.stream.binder.test.junit.pubsub.PubSubTestSupport;
 
 /**
  * @author Vinicius Carvalho
  */
 public class ResourceManagerTests {
-
-	private PubSubResourceManager resourceManager;
-
-	private PubSub pubSub;
+	public static final String PROJECT_NAME = "test";
 
 	@Rule
 	public PubSubTestSupport rule = new PubSubTestSupport();
 
+	private PubSubResourceManager resourceManager;
+	private PubSubSupport pubSubSupport;
+
 	@Before
 	public void setup() {
+		if (pubSubSupport == null) {
+			pubSubSupport = rule.getResource();
+
+		}
+		PubSubBinderConfigurationProperties config = new PubSubBinderConfigurationProperties();
+		config.setProjectName(PROJECT_NAME);
 		if (resourceManager == null) {
-			resourceManager = new PubSubResourceManager(rule.getResource());
+			this.resourceManager = new PubSubResourceManager(
+					config,
+					pubSubSupport.getSubscriptionAdminClient(),
+					pubSubSupport.getTopicAdminClient());
 		}
-		if (pubSub == null) {
-			pubSub = rule.getResource();
-		}
+
+	}
+
+	@After
+	public void tearDown() {
+		ProjectName projectName = ProjectName.newBuilder().setProject(PROJECT_NAME).build();
+		pubSubSupport.getSubscriptionAdminClient()
+				.listSubscriptions(projectName)
+				.expandToFixedSizeCollection(Integer.MAX_VALUE)
+				.getValues()
+				.forEach(subscription -> {
+					System.out.println("Deleting subscription: " + subscription.getName());
+					pubSubSupport.getSubscriptionAdminClient()
+							.deleteSubscription(subscription.getNameAsSubscriptionName());
+				});
+		pubSubSupport.getTopicAdminClient()
+				.listTopics(projectName)
+				.expandToFixedSizeCollection(Integer.MAX_VALUE)
+				.getValues()
+				.forEach(topic -> {
+					System.out.println("Deleting topic: " + topic.getName());
+					pubSubSupport.getTopicAdminClient().deleteTopic(topic.getNameAsTopicName());
+				});
 	}
 
 	@Test
@@ -61,49 +91,58 @@ public class ResourceManagerTests {
 				properties);
 		producerProperties.setRequiredGroups("hdfs", "average");
 		producerProperties.getExtension().setPrefix("createNonPartitionedSubscription");
-		List<TopicInfo> topics = new ArrayList<>();
-		topics.add(resourceManager.declareTopic("test", properties.getPrefix(), null));
+		Topic topic = resourceManager.declareTopic("test", properties.getPrefix(), null);
 		resourceManager.createRequiredMessageGroups(new PubSubProvisioningProvider.PubSubProducerDestination(properties.getPrefix(),
 				"test"), producerProperties);
 
-		Topic topic = pubSub.getTopic(topics.get(0).getName());
-		Assert.assertNotNull(topic);
-		topic.listSubscriptions()
-				.iterateAll()
-				.forEachRemaining(subscriptionId -> Assert.assertTrue(subscriptionId.getSubscription()
-						.startsWith("createNonPartitionedSubscription.test.")));
-		resourceManager.deleteTopics(topics);
-
+		TopicName topicName = topic.getNameAsTopicName();
+		Assert.assertNotNull(pubSubSupport.getTopicAdminClient().getTopic(topicName));
+		pubSubSupport
+				.getTopicAdminClient()
+				.listTopicSubscriptions(topicName)
+				.iterateAllAsSubscriptionName()
+				.forEach(subscriptionName -> Assert.assertTrue(
+						subscriptionName.getSubscription().startsWith("createNonPartitionedSubscription.test.")
+				));
+		pubSubSupport.getTopicAdminClient().deleteTopic(topicName);
 	}
 
 	@Test
 	public void createPartitionedSubscription() throws Exception {
 		PubSubProducerProperties properties = new PubSubProducerProperties();
+		properties.setPrefix("createPartitionedSubscription");
+
 
 		ExtendedProducerProperties<PubSubProducerProperties> producerProperties = new ExtendedProducerProperties<>(
 				properties);
 		producerProperties.setRequiredGroups("hdfs", "average");
-		producerProperties.getExtension().setPrefix("createPartitionedSubscription");
-		List<TopicInfo> topics = new ArrayList<>();
-		for (int i = 0; i < 2; i++) {
-			topics.add(resourceManager.declareTopic("test", null, i));
+		producerProperties.setPartitionCount(2);
+		producerProperties.setPartitionKeyExtractorClass(PartitionTestSupport.class);
+
+		List<Topic> topics = new ArrayList<>();
+		for (int i = 0; i < producerProperties.getPartitionCount(); i++) {
+			topics.add(resourceManager.declareTopic("test", properties.getPrefix(), i));
 		}
 		resourceManager.createRequiredMessageGroups(
 				new PubSubProvisioningProvider.PubSubProducerDestination(properties.getPrefix(), "test"),
 				producerProperties
 		);
 
-		for (int i = 0; i < 2; i++) {
-			Topic topic = pubSub.getTopic(topics.get(i).getName());
-			Assert.assertNotNull(topic);
-			topic.listSubscriptions()
-					.getValues()
-					.forEach(subscriptionId -> Assert.assertTrue(subscriptionId.getSubscription()
-							.startsWith("createPartitionedSubscription.test-")));
+
+		for (Topic topic : topics) {
+			AtomicInteger count = new AtomicInteger();
+			pubSubSupport
+					.getTopicAdminClient()
+					.listTopicSubscriptions(topic.getNameAsTopicName())
+					.iterateAllAsSubscriptionName()
+					.forEach(subscriptionName -> {
+						count.incrementAndGet();
+						Assert.assertTrue(
+								subscriptionName.getSubscription().startsWith("createPartitionedSubscription.test-")
+						);
+					});
+			Assert.assertEquals(2, count.get());
 		}
-
-		resourceManager.deleteTopics(topics);
-
 	}
 
 }

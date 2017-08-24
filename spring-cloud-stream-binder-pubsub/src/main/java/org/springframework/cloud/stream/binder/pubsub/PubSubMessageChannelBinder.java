@@ -16,13 +16,15 @@
  */
 package org.springframework.cloud.stream.binder.pubsub;
 
-import com.google.cloud.pubsub.Subscription;
-import com.google.cloud.pubsub.SubscriptionInfo;
-import com.google.cloud.pubsub.TopicInfo;
+import com.google.api.gax.core.CredentialsProvider;
+import com.google.api.gax.grpc.ChannelProvider;
+import com.google.pubsub.v1.Subscription;
+import com.google.pubsub.v1.Topic;
 import org.springframework.cloud.stream.binder.AbstractMessageChannelBinder;
 import org.springframework.cloud.stream.binder.ExtendedConsumerProperties;
 import org.springframework.cloud.stream.binder.ExtendedProducerProperties;
 import org.springframework.cloud.stream.binder.ExtendedPropertiesBinder;
+import org.springframework.cloud.stream.binder.pubsub.config.PubSubBinderConfigurationProperties;
 import org.springframework.cloud.stream.binder.pubsub.config.PubSubConsumerProperties;
 import org.springframework.cloud.stream.binder.pubsub.config.PubSubExtendedBindingProperties;
 import org.springframework.cloud.stream.binder.pubsub.config.PubSubProducerProperties;
@@ -40,12 +42,24 @@ public class PubSubMessageChannelBinder extends
 		implements
 		ExtendedPropertiesBinder<MessageChannel, PubSubConsumerProperties, PubSubProducerProperties> {
 
+	private PubSubBinderConfigurationProperties pubSubBinderConfigurationProperties;
+
 	private PubSubExtendedBindingProperties extendedBindingProperties = new PubSubExtendedBindingProperties();
 
 	private PubSubResourceManager resourceManager;
 
-	public PubSubMessageChannelBinder(PubSubResourceManager resourceManager, PubSubProvisioningProvider provisioningProvider) {
+	private CredentialsProvider credentialsProvider;
+
+	private ChannelProvider channelProvider;
+
+	public PubSubMessageChannelBinder(
+			PubSubBinderConfigurationProperties pubSubBinderConfigurationProperties,
+			PubSubResourceManager resourceManager,
+			PubSubProvisioningProvider provisioningProvider
+	)
+	{
 		super(true, new String[0], provisioningProvider);
+		this.pubSubBinderConfigurationProperties = pubSubBinderConfigurationProperties;
 		this.resourceManager = resourceManager;
 	}
 
@@ -69,20 +83,19 @@ public class PubSubMessageChannelBinder extends
 			throws Exception
 	{
 		createProducerDestinationIfNecessary(destination, producerProperties);
-		PubSubMessageHandler handler;
-		if (producerProperties.getExtension().isBatchEnabled()) {
-			handler = new BatchingPubSubMessageHandler(resourceManager, producerProperties, destination);
-			((BatchingPubSubMessageHandler) handler).setConcurrency(producerProperties.getExtension().getConcurrency());
-		} else {
-			handler = new SimplePubSubMessageHandler(resourceManager, producerProperties, destination);
-		}
+		PubSubMessageHandler handler = new PubSubMessageHandler(
+				pubSubBinderConfigurationProperties.getProjectName(),
+				producerProperties,
+				destination);
+		handler.setChannelProvider(channelProvider);
+		handler.setCredentialsProvider(credentialsProvider);
 
 		resourceManager.createRequiredMessageGroups(destination, producerProperties);
 
 		return handler;
 	}
 
-	protected Subscription createConsumerDestinationIfNecessary(String name, String group,
+	protected Subscription createConsumerDestinationIfNecessary(String topicName, String group,
 			ExtendedConsumerProperties<PubSubConsumerProperties> properties)
 	{
 		boolean partitioned = properties.isPartitioned();
@@ -90,11 +103,13 @@ public class PubSubMessageChannelBinder extends
 		if (partitioned) {
 			partitionIndex = properties.getInstanceIndex();
 		}
-		TopicInfo topicInfo = resourceManager.declareTopic(name,
-				properties.getExtension().getPrefix(), partitionIndex);
-		SubscriptionInfo subscription = resourceManager
-				.declareSubscription(topicInfo.getName(), topicInfo.getName(), group);
-		return resourceManager.createSubscription(subscription);
+		Topic topic = resourceManager.declareTopic(topicName, properties.getExtension().getPrefix(), partitionIndex);
+		Subscription subscription = resourceManager
+				.declareSubscription(topic.getNameAsTopicName(), topic.getNameAsTopicName().getTopic(), group);
+		return resourceManager.createSubscription(
+				topic.getNameAsTopicName(),
+				subscription.getNameAsSubscriptionName()
+		);
 	}
 
 	@Override
@@ -105,7 +120,9 @@ public class PubSubMessageChannelBinder extends
 	) throws Exception
 	{
 		Subscription subscription = createConsumerDestinationIfNecessary(destination.getName(), group, properties);
-		return new PubSubMessageListener(subscription);
+		return new PubSubMessageListener(subscription.getNameAsSubscriptionName(), properties)
+				.setCredentialsProvider(credentialsProvider)
+				.setChannelProvider(channelProvider);
 	}
 
 	@Override
@@ -120,5 +137,15 @@ public class PubSubMessageChannelBinder extends
 
 	public void setExtendedBindingProperties(PubSubExtendedBindingProperties extendedBindingProperties) {
 		this.extendedBindingProperties = extendedBindingProperties;
+	}
+
+	public PubSubMessageChannelBinder setCredentialsProvider(CredentialsProvider credentialsProvider) {
+		this.credentialsProvider = credentialsProvider;
+		return this;
+	}
+
+	public PubSubMessageChannelBinder setChannelProvider(ChannelProvider channelProvider) {
+		this.channelProvider = channelProvider;
+		return this;
 	}
 }

@@ -17,12 +17,14 @@
 
 package org.springframework.cloud.stream.binder.pubsub;
 
-import com.google.cloud.pubsub.PubSub;
+import com.google.pubsub.v1.ProjectName;
 import org.springframework.cloud.stream.binder.AbstractTestBinder;
 import org.springframework.cloud.stream.binder.ExtendedConsumerProperties;
 import org.springframework.cloud.stream.binder.ExtendedProducerProperties;
+import org.springframework.cloud.stream.binder.pubsub.config.PubSubBinderConfigurationProperties;
 import org.springframework.cloud.stream.binder.pubsub.config.PubSubConsumerProperties;
 import org.springframework.cloud.stream.binder.pubsub.config.PubSubProducerProperties;
+import org.springframework.cloud.stream.binder.test.junit.pubsub.PubSubSupport;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.integration.codec.kryo.PojoCodec;
 import org.springframework.integration.context.IntegrationContextUtils;
@@ -34,14 +36,23 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 public class PubSubTestBinder extends
 		AbstractTestBinder<PubSubMessageChannelBinder, ExtendedConsumerProperties<PubSubConsumerProperties>, ExtendedProducerProperties<PubSubProducerProperties>> {
 
-	private PubSub pubSub;
+	private String project;
+	private PubSubSupport pubSubSupport;
 
-	public PubSubTestBinder(PubSub pubSub) {
-		this.pubSub = pubSub;
+	public PubSubTestBinder(String project, PubSubSupport pubSubSupport) {
+		this.project = project;
+		this.pubSubSupport = pubSubSupport;
+		PubSubBinderConfigurationProperties config = new PubSubBinderConfigurationProperties();
+		config.setProjectName(project);
 		PubSubMessageChannelBinder binder = new PubSubMessageChannelBinder(
-				new PubSubResourceManager(pubSub),
+				config,
+				new PubSubResourceManager(config,
+						pubSubSupport.getSubscriptionAdminClient(),
+						pubSubSupport.getTopicAdminClient()),
 				new PubSubProvisioningProvider()
 		);
+		binder.setChannelProvider(pubSubSupport.getChannelProvider());
+		binder.setCredentialsProvider(pubSubSupport.getCredentialsProvider());
 		GenericApplicationContext context = new GenericApplicationContext();
 		ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
 		scheduler.setPoolSize(1);
@@ -56,13 +67,23 @@ public class PubSubTestBinder extends
 
 	@Override
 	public void cleanup() {
-		pubSub.listSubscriptions().getValues().forEach(subscription -> {
-			System.out.println("Deleting subscription: " + subscription.getName());
-			subscription.delete();
-		});
-		pubSub.listTopics().getValues().forEach(topic -> {
-			System.out.println("Deleting topic: " + topic.getName());
-			topic.delete();
-		});
+		ProjectName projectName = ProjectName.newBuilder().setProject(project).build();
+		pubSubSupport.getSubscriptionAdminClient()
+				.listSubscriptions(projectName)
+				.expandToFixedSizeCollection(Integer.MAX_VALUE)
+				.getValues()
+				.forEach(subscription -> {
+					System.out.println("Deleting subscription: " + subscription.getName());
+					pubSubSupport.getSubscriptionAdminClient()
+							.deleteSubscription(subscription.getNameAsSubscriptionName());
+				});
+		pubSubSupport.getTopicAdminClient()
+				.listTopics(projectName)
+				.expandToFixedSizeCollection(Integer.MAX_VALUE)
+				.getValues()
+				.forEach(topic -> {
+					System.out.println("Deleting topic: " + topic.getName());
+					pubSubSupport.getTopicAdminClient().deleteTopic(topic.getNameAsTopicName());
+				});
 	}
 }

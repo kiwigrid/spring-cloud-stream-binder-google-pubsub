@@ -17,52 +17,137 @@
 
 package org.springframework.cloud.stream.binder.pubsub;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.cloud.ByteArray;
+import com.google.api.gax.batching.BatchingSettings;
+import com.google.api.gax.core.CredentialsProvider;
+import com.google.api.gax.core.InstantiatingExecutorProvider;
+import com.google.api.gax.grpc.ChannelProvider;
+import com.google.cloud.pubsub.v1.Publisher;
+import com.google.protobuf.ByteString;
+import com.google.pubsub.v1.PubsubMessage;
+import com.google.pubsub.v1.TopicName;
 import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.cloud.stream.binder.BinderHeaders;
 import org.springframework.cloud.stream.binder.ExtendedProducerProperties;
 import org.springframework.cloud.stream.binder.pubsub.config.PubSubProducerProperties;
 import org.springframework.cloud.stream.binder.pubsub.support.PubSubBinder;
-import org.springframework.cloud.stream.binder.pubsub.support.PubSubMessage;
 import org.springframework.cloud.stream.provisioning.ProducerDestination;
 import org.springframework.context.Lifecycle;
 import org.springframework.integration.handler.AbstractMessageHandler;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageHeaders;
+import org.threeten.bp.Duration;
+
+import static org.slf4j.LoggerFactory.getLogger;
 
 /**
- * @author Vinicius Carvalho
+ * @author Andreas Berger
  */
-public abstract class PubSubMessageHandler extends AbstractMessageHandler implements Lifecycle {
+public class PubSubMessageHandler extends AbstractMessageHandler implements Lifecycle {
 
-	protected PubSubResourceManager resourceManager;
-	protected ExtendedProducerProperties<PubSubProducerProperties> producerProperties;
+	private static final Logger LOGGER = getLogger(PubSubMessageHandler.class);
+	private final ConcurrentHashMap<String, Publisher> publisherCache = new ConcurrentHashMap<>();
+	private final String projectName;
 
-	protected ObjectMapper mapper;
+	private ExtendedProducerProperties<PubSubProducerProperties> producerProperties;
+	private ObjectMapper mapper;
+	private ProducerDestination producerDestination;
+	private volatile boolean running = false;
 
-	protected ProducerDestination producerDestination;
+	private CredentialsProvider credentialsProvider;
+	private ChannelProvider channelProvider;
 
-	protected Logger logger = LoggerFactory.getLogger(this.getClass().getName());
-
-	protected volatile boolean running = false;
-
-	public PubSubMessageHandler(PubSubResourceManager resourceManager,
+	public PubSubMessageHandler(
+			String projectName,
 			ExtendedProducerProperties<PubSubProducerProperties> producerProperties,
 			ProducerDestination producerDestination)
 	{
-		this.resourceManager = resourceManager;
+		this.projectName = projectName;
 		this.producerProperties = producerProperties;
 		this.mapper = new ObjectMapper();
 		this.producerDestination = producerDestination;
 	}
 
-	protected PubSubMessage convert(Message<?> message) throws Exception {
+	@Override
+	public void start() {
+		running = true;
+	}
+
+	@Override
+	public void stop() {
+		for (Publisher publisher : publisherCache.values()) {
+			try {
+				publisher.shutdown();
+			} catch (Exception e) {
+				LOGGER.error("", e);
+			}
+		}
+		publisherCache.clear();
+		running = false;
+	}
+
+	@Override
+	public boolean isRunning() {
+		return running;
+	}
+
+	@Override
+	protected void handleMessageInternal(Message<?> message) throws Exception {
+		String topicName = getTopicName(message);
+
 		String encodedHeaders = encodeHeaders(message.getHeaders());
+		PubsubMessage pubsubMessage = PubsubMessage
+				.newBuilder()
+				.setData(ByteString.copyFrom((byte[]) message.getPayload()))
+				.putAttributes(PubSubBinder.SCST_HEADERS, encodedHeaders)
+				.build();
+
+		Publisher publisher = getPublisher(topicName);
+		publisher.publish(pubsubMessage);
+	}
+
+	private Publisher getPublisher(String topic) {
+		return publisherCache.computeIfAbsent(topic, topicName -> {
+			try {
+				Publisher.Builder builder = Publisher
+						.defaultBuilder(TopicName.create(projectName, topicName));
+				if (credentialsProvider != null) {
+					builder.setCredentialsProvider(credentialsProvider);
+				}
+				if (channelProvider != null) {
+					builder.setChannelProvider(channelProvider);
+				}
+				PubSubProducerProperties extensionConf = producerProperties.getExtension();
+				if (extensionConf.isBatchEnabled()) {
+					BatchingSettings batchingSettings = BatchingSettings
+							.newBuilder()
+							.setIsEnabled(extensionConf.isBatchEnabled())
+							.setElementCountThreshold(extensionConf.getBatchSize())
+							.setRequestByteThreshold(1000L)// 1 kB
+							.setDelayThreshold(Duration.ofMillis(extensionConf.getWindowSize()))
+							.build();
+					builder.setBatchingSettings(batchingSettings);
+				}
+				if (extensionConf.getConcurrency() != null) {
+					builder.setExecutorProvider(InstantiatingExecutorProvider
+							.newBuilder()
+							.setExecutorThreadCount(extensionConf.getConcurrency())
+							.build());
+
+				}
+				return builder.build();
+			} catch (IOException e) {
+				throw new IllegalStateException(e);
+			}
+		});
+	}
+
+	private String getTopicName(Message<?> message) {
 		String topic;
 		if (producerProperties.isPartitioned()) {
 			Integer partition = (Integer) message.getHeaders().get(BinderHeaders.PARTITION_HEADER);
@@ -70,11 +155,7 @@ public abstract class PubSubMessageHandler extends AbstractMessageHandler implem
 		} else {
 			topic = producerDestination.getName();
 		}
-		return new PubSubMessage(
-				com.google.cloud.pubsub.Message
-						.newBuilder(ByteArray.copyFrom((byte[]) message.getPayload()))
-						.addAttribute(PubSubBinder.SCST_HEADERS, encodedHeaders).build(),
-				topic);
+		return topic;
 	}
 
 	protected String encodeHeaders(MessageHeaders headers) throws Exception {
@@ -85,4 +166,13 @@ public abstract class PubSubMessageHandler extends AbstractMessageHandler implem
 		return mapper.writeValueAsString(rawHeaders);
 	}
 
+	public PubSubMessageHandler setCredentialsProvider(CredentialsProvider credentialsProvider) {
+		this.credentialsProvider = credentialsProvider;
+		return this;
+	}
+
+	public PubSubMessageHandler setChannelProvider(ChannelProvider channelProvider) {
+		this.channelProvider = channelProvider;
+		return this;
+	}
 }

@@ -38,7 +38,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * @author Vinicius Carvalho
  */
-public class PubSubBinderTests extends PartitionCapableBinderTests<PubSubTestBinder,ExtendedConsumerProperties<PubSubConsumerProperties>,ExtendedProducerProperties<PubSubProducerProperties>> {
+public class PubSubBinderTests extends
+		PartitionCapableBinderTests<PubSubTestBinder, ExtendedConsumerProperties<PubSubConsumerProperties>, ExtendedProducerProperties<PubSubProducerProperties>> {
 
 	private final String CLASS_UNDER_TEST_NAME = PubSubMessageChannelBinder.class.getSimpleName();
 
@@ -51,7 +52,7 @@ public class PubSubBinderTests extends PartitionCapableBinderTests<PubSubTestBin
 	}
 
 	@Before
-	public void setup(){
+	public void setup() {
 		this.timeoutMultiplier = 15;
 	}
 
@@ -117,8 +118,8 @@ public class PubSubBinderTests extends PartitionCapableBinderTests<PubSubTestBin
 
 	@Override
 	protected PubSubTestBinder getBinder() throws Exception {
-		if(testBinder == null){
-			testBinder = new PubSubTestBinder(rule.getResource());
+		if (testBinder == null) {
+			testBinder = new PubSubTestBinder("test", rule.getResource());
 		}
 		return testBinder;
 	}

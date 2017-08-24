@@ -23,8 +23,8 @@ package org.springframework.cloud.stream.binder.pubsub.config;
 public class PubSubProducerProperties {
 	private String prefix = "";
 	private Integer concurrency = null;
-	private Integer batchSize = 1000;
-	private Integer windowSize = 100;
+	private long batchSize = 1000L;
+	private int windowSize = 100;
 	private boolean batchEnabled = true;
 
 	public boolean isBatchEnabled() {
@@ -35,22 +35,24 @@ public class PubSubProducerProperties {
 		this.batchEnabled = batchEnabled;
 	}
 
-	public Integer getBatchSize() {
+	public long getBatchSize() {
 		return batchSize;
 	}
 
-	public void setBatchSize(Integer batchSize) {
-		if(batchSize != null && batchSize > 1)
-			this.batchSize = Math.min(1000,batchSize);
+	public void setBatchSize(long batchSize) {
+		if (batchSize > 1) {
+			this.batchSize = Math.min(1000, batchSize);
+		}
 	}
 
-	public Integer getWindowSize() {
+	public int getWindowSize() {
 		return windowSize;
 	}
 
-	public void setWindowSize(Integer windowSize) {
-		if(windowSize != null && windowSize > 1)
+	public void setWindowSize(int windowSize) {
+		if (windowSize > 1) {
 			this.windowSize = windowSize;
+		}
 	}
 
 	public Integer getConcurrency() {

@@ -18,17 +18,26 @@
 package org.springframework.cloud.stream.binder.test.junit.pubsub;
 
 import java.io.IOException;
+import java.net.URI;
+import java.util.List;
+import java.util.Map;
 
-import com.google.cloud.pubsub.PubSub;
-import com.google.cloud.pubsub.PubSubOptions;
-import com.google.cloud.pubsub.testing.LocalPubsubHelper;
+import com.google.api.gax.core.FixedCredentialsProvider;
+import com.google.api.gax.grpc.FixedChannelProvider;
+import com.google.auth.oauth2.OAuth2Credentials;
+import com.google.cloud.pubsub.v1.SubscriptionAdminClient;
+import com.google.cloud.pubsub.v1.SubscriptionAdminSettings;
+import com.google.cloud.pubsub.v1.TopicAdminClient;
+import com.google.cloud.pubsub.v1.TopicAdminSettings;
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
 import org.springframework.cloud.stream.test.junit.AbstractExternalResourceTestSupport;
 import org.springframework.util.StringUtils;
 
 /**
  * @author Vinicius Carvalho
  */
-public class PubSubTestSupport extends AbstractExternalResourceTestSupport<PubSub> {
+public class PubSubTestSupport extends AbstractExternalResourceTestSupport<PubSubSupport> {
 
 	public PubSubTestSupport() {
 		super("PUBSUB");
@@ -41,44 +50,45 @@ public class PubSubTestSupport extends AbstractExternalResourceTestSupport<PubSu
 
 	@Override
 	protected void obtainResource() throws Exception {
-		if(StringUtils.hasText(System.getenv("GOOGLE_CLOUD_JSON_CRED"))){
-			resource = PubSubOptions
-					.newBuilder()
-					.build()
-					.getService();
-		}else{
-			resource = LocalPubSubHelperHolder.getInstance().getResource();
+		String emulatorHost = System.getenv("PUBSUB_EMULATOR_HOST");
+		if (!StringUtils.hasText(emulatorHost)) {
+			emulatorHost = System.getProperty("PUBSUB_EMULATOR_HOST");
 		}
-	}
+		TopicAdminSettings.Builder topicBuilder = TopicAdminSettings.defaultBuilder();
+		SubscriptionAdminSettings.Builder subscriptionBuilder = SubscriptionAdminSettings.defaultBuilder();
+		FixedCredentialsProvider credentialsProvider = null;
+		FixedChannelProvider channelProvider = null;
+		if (StringUtils.hasText(emulatorHost)) {
 
-	static class LocalPubSubHelperHolder {
-		private static LocalPubSubHelperHolder instance = null;
+			ManagedChannel channel = ManagedChannelBuilder
+					//					.forAddress("localhost",8085)
+					.forTarget(emulatorHost)
+					.usePlaintext(true)
+					.build();
 
-		private LocalPubsubHelper helper;
-
-		protected LocalPubSubHelperHolder(){
-			this.helper = LocalPubsubHelper.create();
-			try {
-				helper.start();
-			} catch (IOException | InterruptedException e) {
-				e.printStackTrace();
-			}
-		}
-
-		public static LocalPubSubHelperHolder getInstance(){
-			if(instance == null){
-				synchronized (LocalPubSubHelperHolder.class){
-					if(instance == null){
-						instance = new LocalPubSubHelperHolder();
-					}
+			credentialsProvider = FixedCredentialsProvider.create(new OAuth2Credentials(null) {
+				@Override
+				public Map<String, List<String>> getRequestMetadata(URI uri) throws IOException {
+					return null;
 				}
-			}
-			return instance;
-		}
+			});
+			channelProvider = FixedChannelProvider.create(channel);
+			topicBuilder.setCredentialsProvider(credentialsProvider);
+			topicBuilder.setTransportProvider(TopicAdminSettings
+					.defaultGrpcTransportProviderBuilder()
+					.setChannelProvider(channelProvider)
+					.build());
 
-
-		public PubSub getResource(){
-			return helper.getOptions().getService();
+			subscriptionBuilder.setCredentialsProvider(credentialsProvider);
+			subscriptionBuilder.setTransportProvider(SubscriptionAdminSettings
+					.defaultGrpcTransportProviderBuilder()
+					.setChannelProvider(channelProvider)
+					.build());
 		}
+		resource = new PubSubSupport()
+				.setSubscriptionAdminClient(SubscriptionAdminClient.create(subscriptionBuilder.build()))
+				.setTopicAdminClient(TopicAdminClient.create(topicBuilder.build()))
+				.setCredentialsProvider(credentialsProvider)
+				.setChannelProvider(channelProvider);
 	}
 }

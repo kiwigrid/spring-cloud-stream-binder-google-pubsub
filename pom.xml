@@ -13,8 +13,6 @@
 	</parent>
 	<properties>
 		<java.version>1.8</java.version>
-		<google-cloud-pubsub.version>0.5.1</google-cloud-pubsub.version>
-		<reactor-core.version>3.0.7.RELEASE</reactor-core.version>
 	</properties>
 	<modules>
 		<module>spring-cloud-stream-binder-pubsub</module>
@@ -30,52 +28,17 @@
 				<type>pom</type>
 				<scope>import</scope>
 			</dependency>
-			<!--<dependency>-->
-			<!--<groupId>com.google.api-client</groupId>-->
-			<!--<artifactId>google-api-client-parent</artifactId>-->
-			<!--<version>1.21.0</version>-->
-			<!--<type>pom</type>-->
-			<!--<scope>import</scope>-->
-			<!--</dependency>-->
 			<dependency>
-				<groupId>io.projectreactor</groupId>
-				<artifactId>reactor-core</artifactId>
-				<version>${reactor-core.version}</version>
+				<groupId>com.google.cloud</groupId>
+				<artifactId>google-cloud-pom</artifactId>
+				<version>0.22.0-alpha</version>
+				<type>pom</type>
+				<scope>import</scope>
 			</dependency>
 			<dependency>
 				<groupId>com.google.cloud</groupId>
 				<artifactId>google-cloud-pubsub</artifactId>
-				<version>${google-cloud-pubsub.version}</version>
-			</dependency>
-			<dependency>
-				<groupId>com.google.guava</groupId>
-				<artifactId>guava</artifactId>
-				<version>19.0</version>
-			</dependency>
-			<dependency>
-				<groupId>com.google.auth</groupId>
-				<artifactId>google-auth-library-credentials</artifactId>
-				<version>0.4.0</version>
-			</dependency>
-			<dependency>
-				<groupId>com.google.auth</groupId>
-				<artifactId>google-auth-library-oauth2-http</artifactId>
-				<version>0.4.0</version>
-			</dependency>
-			<dependency>
-				<groupId>com.google.code.findbugs</groupId>
-				<artifactId>jsr305</artifactId>
-				<version>3.0.0</version>
-			</dependency>
-			<dependency>
-				<groupId>com.google.http-client</groupId>
-				<artifactId>google-http-client</artifactId>
-				<version>1.21.0</version>
-			</dependency>
-			<dependency>
-				<groupId>com.google.http-client</groupId>
-				<artifactId>google-http-client-jackson2</artifactId>
-				<version>1.21.0</version>
+				<version>0.22.0-beta</version>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
