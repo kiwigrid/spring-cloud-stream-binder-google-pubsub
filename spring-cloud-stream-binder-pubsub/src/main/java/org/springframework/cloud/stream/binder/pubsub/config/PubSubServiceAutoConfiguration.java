@@ -18,12 +18,28 @@
 package org.springframework.cloud.stream.binder.pubsub.config;
 
 import java.io.IOException;
+import java.net.URI;
+import java.util.List;
+import java.util.Map;
 
+import com.google.api.gax.core.CredentialsProvider;
+import com.google.api.gax.core.FixedCredentialsProvider;
+import com.google.api.gax.grpc.ChannelProvider;
+import com.google.api.gax.grpc.FixedChannelProvider;
+import com.google.api.gax.grpc.GrpcTransportProvider;
+import com.google.api.gax.rpc.TransportProvider;
+import com.google.auth.oauth2.OAuth2Credentials;
 import com.google.cloud.pubsub.v1.SubscriptionAdminClient;
+import com.google.cloud.pubsub.v1.SubscriptionAdminSettings;
 import com.google.cloud.pubsub.v1.TopicAdminClient;
+import com.google.cloud.pubsub.v1.TopicAdminSettings;
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cloud.stream.binder.Binder;
 import org.springframework.cloud.stream.binder.pubsub.PubSubMessageChannelBinder;
@@ -49,6 +65,15 @@ public class PubSubServiceAutoConfiguration {
 	@Autowired
 	private PubSubExtendedBindingProperties pubSubExtendedBindingProperties;
 
+	@Autowired(required = false)
+	private CredentialsProvider credentialsProvider;
+
+	@Autowired(required = false)
+	private TransportProvider transportProvider;
+
+	@Autowired(required = false)
+	private ChannelProvider channelProvider;
+
 	@SuppressWarnings("SpringJavaAutowiringInspection")
 	@Autowired
 	private PubSubBinderConfigurationProperties pubSubBinderConfigurationProperties;
@@ -56,13 +81,28 @@ public class PubSubServiceAutoConfiguration {
 	@ConditionalOnMissingBean(SubscriptionAdminClient.class)
 	@Bean
 	public SubscriptionAdminClient subscriptionAdminClient() throws IOException {
-		return SubscriptionAdminClient.create();
+		SubscriptionAdminSettings.Builder builder = SubscriptionAdminSettings.defaultBuilder();
+		if (credentialsProvider != null) {
+			builder.setCredentialsProvider(credentialsProvider);
+		}
+		if (transportProvider != null) {
+			builder.setTransportProvider(transportProvider);
+		}
+		return SubscriptionAdminClient.create(builder.build());
+
 	}
 
 	@ConditionalOnMissingBean(TopicAdminClient.class)
 	@Bean
 	public TopicAdminClient topicAdminClient() throws IOException {
-		return TopicAdminClient.create();
+		TopicAdminSettings.Builder builder = TopicAdminSettings.defaultBuilder();
+		if (credentialsProvider != null) {
+			builder.setCredentialsProvider(credentialsProvider);
+		}
+		if (transportProvider != null) {
+			builder.setTransportProvider(transportProvider);
+		}
+		return TopicAdminClient.create(builder.build());
 	}
 
 	@Bean
@@ -93,7 +133,50 @@ public class PubSubServiceAutoConfiguration {
 		);
 		binder.setExtendedBindingProperties(this.pubSubExtendedBindingProperties);
 		binder.setCodec(codec);
+		binder.setCredentialsProvider(credentialsProvider);
+		binder.setChannelProvider(channelProvider);
 		return binder;
+	}
+
+	@Configuration
+	@ConditionalOnProperty(name = "PUBSUB_EMULATOR_HOST", relaxedNames = false)
+	public static class EmulatorConfiguration {
+
+		@Value("${PUBSUB_EMULATOR_HOST}")
+		private String emulatorHost;
+
+		@ConditionalOnMissingBean(CredentialsProvider.class)
+		@Bean
+		public CredentialsProvider fixedCredentialsProvider()
+		{
+			// ignore credentials if we have a local setup with emulator
+			return FixedCredentialsProvider.create(new OAuth2Credentials(null) {
+				@Override
+				public Map<String, List<String>> getRequestMetadata(URI uri) throws IOException {
+					return null;
+				}
+			});
+		}
+
+		@ConditionalOnMissingBean(ChannelProvider.class)
+		@Bean
+		public ChannelProvider channelProvider() {
+			ManagedChannel channel = ManagedChannelBuilder
+					.forTarget(emulatorHost)
+					.usePlaintext(true)
+					.build();
+
+			return FixedChannelProvider.create(channel);
+		}
+
+		@ConditionalOnMissingBean(TransportProvider.class)
+		@Bean
+		public TransportProvider transportProvider(ChannelProvider channelProvider) {
+			return GrpcTransportProvider
+					.newBuilder()
+					.setChannelProvider(channelProvider)
+					.build();
+		}
 	}
 
 }
