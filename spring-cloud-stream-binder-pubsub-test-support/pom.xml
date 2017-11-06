@@ -28,7 +28,6 @@
 		<dependency>
 			<groupId>com.google.cloud</groupId>
 			<artifactId>google-cloud-pubsub</artifactId>
-			<optional>true</optional>
 		</dependency>
 	</dependencies>
 

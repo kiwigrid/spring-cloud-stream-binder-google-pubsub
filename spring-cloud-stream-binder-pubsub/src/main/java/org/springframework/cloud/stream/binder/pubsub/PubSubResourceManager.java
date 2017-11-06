@@ -19,7 +19,8 @@ package org.springframework.cloud.stream.binder.pubsub;
 
 import java.util.UUID;
 
-import com.google.api.gax.grpc.GrpcApiException;
+import com.google.api.gax.grpc.GrpcStatusCode;
+import com.google.api.gax.rpc.ApiException;
 import com.google.cloud.pubsub.v1.SubscriptionAdminClient;
 import com.google.cloud.pubsub.v1.TopicAdminClient;
 import com.google.pubsub.v1.*;
@@ -114,8 +115,10 @@ public class PubSubResourceManager {
 					topicName,
 					PushConfig.getDefaultInstance(),
 					0);
-		} catch (GrpcApiException e) {
-			if (e.getStatusCode().getCode() == Status.Code.ALREADY_EXISTS) {
+		} catch (ApiException e) {
+			if (e.getStatusCode() instanceof GrpcStatusCode
+					&& ((GrpcStatusCode) e.getStatusCode()).getCode() == Status.Code.ALREADY_EXISTS)
+			{
 				LOGGER.info("subscription: {} already exists, reusing definition from remote server", subscriptionName);
 				return Subscription
 						.newBuilder()
@@ -135,8 +138,10 @@ public class PubSubResourceManager {
 		try {
 			LOGGER.info("try creating topic: {} ", topicName);
 			return topicAdminClient.createTopic(topicName);
-		} catch (GrpcApiException e) {
-			if (e.getStatusCode().getCode() == Status.Code.ALREADY_EXISTS) {
+		} catch (ApiException e) {
+			if (e.getStatusCode() instanceof GrpcStatusCode
+					&& ((GrpcStatusCode) e.getStatusCode()).getCode() == Status.Code.ALREADY_EXISTS)
+			{
 				LOGGER.info("topic: {} already exists, reusing definition from remote server", topicName);
 				return Topic
 						.newBuilder()

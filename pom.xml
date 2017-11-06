@@ -31,14 +31,14 @@
 			<dependency>
 				<groupId>com.google.cloud</groupId>
 				<artifactId>google-cloud-pom</artifactId>
-				<version>0.22.0-alpha</version>
+				<version>0.26.0-alpha</version>
 				<type>pom</type>
 				<scope>import</scope>
 			</dependency>
 			<dependency>
 				<groupId>com.google.cloud</groupId>
 				<artifactId>google-cloud-pubsub</artifactId>
-				<version>0.22.0-beta</version>
+				<version>0.26.0-beta</version>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
